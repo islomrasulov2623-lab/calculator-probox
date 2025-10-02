@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import React from "react";
-// === Helper: format currency in so'm ===
 const fmt = (n) =>
   isNaN(n)
     ? "—"
