@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import React from "react";
+// === Helper: format currency in so'm ===
 const fmt = (n) =>
   isNaN(n)
     ? "—"
@@ -24,21 +25,27 @@ const DEFAULT_RATES = {
   15: 70,
 };
 
-export default function SomInstallmentCalculator() {
+export default function SomInstallAmentACalculator() {
   const [price, setPrice] = useState(0); // so'm
   const [down, setDown] = useState(0); // so'm
   const [months, setMonths] = useState(0); // oy
   const [rates, setRates] = useState(DEFAULT_RATES);
   const [editing, setEditing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [limitMode, setLimitMode] = useState(false);
+  const [monthlyLimit, setMonthlyLimit] = useState(1000000);
 
   // Derived values
   const ratePct = months ? (rates[months] ?? 0) : 0;
-  const financed = Math.max(0, Number(price) - Number(down));
+  const appliedDown = limitMode && months
+    ? clamp(Number(price) - (Number(monthlyLimit) * months) / (1 + ratePct / 100), 0, Number(price))
+    : Number(down);
+  const financed = Math.max(0, Number(price) - appliedDown);
   const fee = (financed * ratePct) / 100;
   const repayTotal = financed + fee; // faqat bo'lib-bo'lib qismi
   const monthly = months ? repayTotal / months : 0;
-  const grandTotal = repayTotal + Number(down); // boshlang'ich + bo'lib-bo'lib jami
+  const displayMonthly = limitMode ? Number(monthlyLimit) : monthly;
+  const grandTotal = repayTotal + appliedDown; // boshlang'ich + bo'lib-bo'lib jami
 
   const monthOptions = useMemo(
     () =>
@@ -71,6 +78,10 @@ export default function SomInstallmentCalculator() {
 
           {/* Inputs */}
           <div className="grid grid-cols-1 gap-4">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={limitMode} onChange={(e)=>setLimitMode(e.target.checked)} />
+              <span className="text-sm text-neutral-700">Limit rejimi: oylik to'lov bo'yicha boshlang'ichni hisoblash</span>
+            </div>
             <LabeledInput
               label="Mahsulot narxi (so'm)"
               placeholder="masalan, 12 500 000"
@@ -78,12 +89,29 @@ export default function SomInstallmentCalculator() {
               onChange={(v) => setPrice(sanitizeInt(v))}
             />
 
-            <LabeledInput
-              label="Boshlang'ich to'lov (so'm)"
-              placeholder="masalan, 2 000 000"
-              value={down}
-              onChange={(v) => setDown(sanitizeInt(v))}
-            />
+            {!limitMode ? (
+              <LabeledInput
+                label="Boshlang'ich to'lov (so'm)"
+                placeholder="masalan, 2 000 000"
+                value={down}
+                onChange={(v) => setDown(sanitizeInt(v))}
+              />
+            ) : (
+              <>
+                <LabeledInput
+                  label="Oylik to'lov limiti (so'm)"
+                  placeholder="masalan, 1 000 000"
+                  value={monthlyLimit}
+                  onChange={(v) => setMonthlyLimit(sanitizeInt(v))}
+                />
+                <LabeledInput
+                  label="Kerakli boshlang'ich (hisoblangan)"
+                  value={Math.round(appliedDown)}
+                  onChange={() => {}}
+                  readOnly
+                />
+              </>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <label className="text-sm text-neutral-600">Muddat</label>
@@ -99,15 +127,13 @@ export default function SomInstallmentCalculator() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-neutral-500">
-                Tanlangan muddat uchun stavka: <b>{ratePct}%</b>
-              </p>
+              
             </div>
           </div>
 
           {/* Results */}
           <div className="grid grid-cols-1 gap-3">
-            <StatRow label="Oylik to'lov" value={`${fmt(monthly)} so'm`} big />
+            <StatRow label="Oylik to'lov" value={`${fmt(displayMonthly)} so'm`} big />
             <StatRow label="Umumiy (boshlang'ich bilan)" value={`${fmt(grandTotal)} so'm`} />
           </div>
 
@@ -130,7 +156,7 @@ export default function SomInstallmentCalculator() {
           )}
 
           {/* Warnings */}
-          {down > price && (
+          {appliedDown > price && (
             <p className="text-sm text-red-600">Boshlang'ich to'lov mahsulot narxidan oshmasin.</p>
           )}
 
@@ -140,7 +166,7 @@ export default function SomInstallmentCalculator() {
           )}
 
           <footer className="text-xs text-neutral-400 pt-2">
-            Hisoblash formulasi: oylik = ((narx − boshlang'ich) × (1 + stavka%)) ÷ oylar soni.
+            Hisoblash formulasi: oylik = ((narx − boshlang'ich) × (1 + stavka%)) ÷ oylar soni.  Limit rejimi: boshlang'ich = narx − (oylik × oylar) ÷ (1 + stavka%).
           </footer>
         </div>
       </div>
@@ -148,17 +174,19 @@ export default function SomInstallmentCalculator() {
   );
 }
 
-function LabeledInput({ label, value, onChange, placeholder }) {
+function LabeledInput({ label, value, onChange, placeholder, readOnly }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-sm text-neutral-600">{label}</label>
       <input
         type="text"
         inputMode="numeric"
-        className="rounded-xl border p-3 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+        className="rounded-xl border p-3 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:bg-neutral-100"
         placeholder={placeholder}
         value={formatInputNumber(value)}
         onChange={(e) => onChange(e.target.value)}
+        readOnly={!!readOnly}
+        disabled={!!readOnly}
       />
     </div>
   );
@@ -227,3 +255,8 @@ function formatInputNumber(n) {
   if (!s) return "";
   return s.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
