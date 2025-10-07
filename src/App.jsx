@@ -8,7 +8,7 @@ const fmt = (n) =>
 
 // Default month -> markup % table (B2C) from your policy
 const DEFAULT_RATES = {
-  1: 5,5,
+  1: 5.5,
   2: 11,
   3: 17,
   4: 25,
