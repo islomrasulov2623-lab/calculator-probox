@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 // === Helper: format currency in so'm ===
 const fmt = (n) =>
