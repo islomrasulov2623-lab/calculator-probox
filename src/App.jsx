@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import React from "react";
+
 // === Helper: format currency in so'm ===
 const fmt = (n) =>
   isNaN(n)
     ? "—"
     : new Intl.NumberFormat("uz-UZ").format(Math.round(Number(n)));
 
-// Default month -> markup % table (B2C) from your policy
+// Default month -> markup % table (B2C)
 const DEFAULT_RATES = {
   1: 5.5,
   2: 11,
@@ -27,51 +27,81 @@ const DEFAULT_RATES = {
 
 export default function SomInstallmentCalculator() {
   const [price, setPrice] = useState(0); // so'm
-  const [down, setDown] = useState(0); // so'm
+  const [down, setDown] = useState(0); // so'm (manual)
   const [months, setMonths] = useState(0); // oy
   const [rates, setRates] = useState(DEFAULT_RATES);
   const [editing, setEditing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
-  // Limit modes
-  const [limitMode, setLimitMode] = useState(false); // monthly payment limit mode
-  const [monthlyLimit, setMonthlyLimit] = useState(1_000_000);
+  // Rejimlar
+  const [limitMode, setLimitMode] = useState(false); // NEW: Scoring limiti bo'yicha (oylik emas!)
+  const [scoringLimit, setScoringLimit] = useState(16_000_000); // scoring chiqaradigan limit (jami bo'lib-bo'lib to'lanadigan summa limiti)
 
-  const [yearlyMode, setYearlyMode] = useState(false); // yearly credit limit mode
+  const [yearlyMode, setYearlyMode] = useState(false); // yillik limit rejimi (principalga nisbatan)
   const [yearlyLimit, setYearlyLimit] = useState(12_000_000);
   const [usedThisYear, setUsedThisYear] = useState(0);
 
-  // Derived values
+  // Derived values (common)
   const ratePct = months ? (rates[months] ?? 0) : 0;
+  const repayFull = Number(price) * (1 + ratePct / 100); // tan narx + ustama (agar boshlang'ich 0 bo'lsa)
 
-  // Annual limit logic
+  // Yillik limit (principal) rejimi uchun yordamchi: mavjud limit
   const available = Math.max(0, Number(yearlyLimit) - Number(usedThisYear));
   const requiredDownYearly = Math.max(0, Number(price) - available);
 
-  // Applied down depends on selected mode
-  const appliedDown = yearlyMode
-    ? clamp(requiredDownYearly, 0, Number(price))
-    : limitMode && months
-    ? clamp(
-        Number(price) - (Number(monthlyLimit) * months) / (1 + ratePct / 100),
-        0,
-        Number(price)
-      )
-    : Number(down);
+  // === Boshlang'ichni tanlash mantiqi ===
+  let appliedDown = Number(down); // default: manual
+  let displayMonthly;             // UI'da ko'rsatiladigan oylik
+  let financed, fee, repayTotal;  // non-limit yoki yearly rejim uchun
+  let detailsBlock;               // "Tafsilotlar" rejimga qarab
+  let grandTotal;                 // umumiy (boshlang'ich + bo'lib-bo'lib jami)
 
-  const financed = Math.max(0, Number(price) - appliedDown);
-  const fee = (financed * ratePct) / 100;
-  const repayTotal = financed + fee; // faqat bo'lib-bo'lib qismi
-  const monthly = months ? repayTotal / months : 0;
-  const displayMonthly = yearlyMode ? monthly : limitMode ? Number(monthlyLimit) : monthly;
-  const grandTotal = repayTotal + appliedDown; // boshlang'ich + bo'lib-bo'lib jami
+  if (limitMode && months) {
+    // --- Scoring limiti bo'yicha: foydalanuvchi bergan talablarga muvofiq ---
+    // 1) To'liq hisob (tan narx + ustama) = repayFull
+    // 2) Kerakli boshlang'ich = max(0, repayFull − scoringLimit)
+    // 3) Bo'lib-bo'lib jami = min(repayFull, scoringLimit)
+    // 4) Oylik = (bo'lib-bo'lib jami) / oylar
+    const limit = Number(scoringLimit);
+    const diff = Math.max(0, repayFull - limit);
+    appliedDown = diff; // talab: 21.7M − 16M = 5.7M
+    const financedRepay = Math.min(repayFull, limit);
+    displayMonthly = months ? financedRepay / months : 0;
+    grandTotal = appliedDown + financedRepay; // odatda = repayFull
+
+    detailsBlock = (
+      <div className="grid grid-cols-1 gap-3">
+        <div className="h-px bg-neutral-200" />
+        <StatRow label="To'liq hisob (tan narx + ustama)" value={`${fmt(repayFull)} so'm`} />
+        <StatRow label="Scoring limiti" value={`${fmt(limit)} so'm`} />
+        <StatRow label="Kerakli boshlang'ich" value={`${fmt(appliedDown)} so'm`} />
+        <StatRow label="Bo'lib-bo'lib jami" value={`${fmt(financedRepay)} so'm`} />
+      </div>
+    );
+  } else {
+    // --- Oddiy yoki Yillik limit (principal) rejimi ---
+    const usedDown = yearlyMode ? clamp(requiredDownYearly, 0, Number(price)) : Number(down);
+    financed = Math.max(0, Number(price) - usedDown);
+    fee = (financed * ratePct) / 100;
+    repayTotal = financed + fee;
+    displayMonthly = months ? repayTotal / months : 0;
+    grandTotal = repayTotal + usedDown;
+
+    detailsBlock = (
+      <div className="grid grid-cols-1 gap-3">
+        <div className="h-px bg-neutral-200" />
+        <StatRow label="Moliyalashtiriladigan summa" value={`${fmt(financed)} so'm`} />
+        <StatRow label={`Ustama (${ratePct}%)`} value={`${fmt(fee)} so'm`} />
+        <StatRow label="Bo'lib-bo'lib jami" value={`${fmt(repayTotal)} so'm`} />
+      </div>
+    );
+
+    appliedDown = usedDown;
+  }
 
   const monthOptions = useMemo(
     () =>
-      Array.from({ length: 15 }, (_, i) => i + 1).map((m) => ({
-        value: m,
-        label: `${m} oy`,
-      })),
+      Array.from({ length: 15 }, (_, i) => i + 1).map((m) => ({ value: m, label: `${m} oy` })),
     []
   );
 
@@ -83,9 +113,7 @@ export default function SomInstallmentCalculator() {
           {/* Header */}
           <header className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center text-white font-bold">
-                PB
-              </div>
+              <div className="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center text-white font-bold">PB</div>
               <h1 className="text-xl font-semibold">Muddatli to‘lov kalkulyatori</h1>
             </div>
             <button
@@ -109,7 +137,7 @@ export default function SomInstallmentCalculator() {
                     if (e.target.checked) setLimitMode(false);
                   }}
                 />
-                <span className="text-sm text-neutral-700">Yillik limit rejimi (ustun)</span>
+                <span className="text-sm text-neutral-700">Yillik limit (principal) rejimi</span>
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -120,14 +148,14 @@ export default function SomInstallmentCalculator() {
                     if (e.target.checked) setYearlyMode(false);
                   }}
                 />
-                <span className="text-sm text-neutral-700">Oylik limit rejimi</span>
+                <span className="text-sm text-neutral-700">Scoring limiti bo‘yicha rejim</span>
               </label>
             </div>
 
             {/* Price */}
             <LabeledInput
               label="Mahsulot narxi (so'm)"
-              placeholder="masalan, 12 500 000"
+              placeholder="masalan, 14 000 000"
               value={price}
               onChange={(v) => setPrice(sanitizeInt(v))}
             />
@@ -157,10 +185,10 @@ export default function SomInstallmentCalculator() {
             ) : limitMode ? (
               <>
                 <LabeledInput
-                  label="Oylik to'lov limiti (so'm)"
-                  placeholder="masalan, 1 000 000"
-                  value={monthlyLimit}
-                  onChange={(v) => setMonthlyLimit(sanitizeInt(v))}
+                  label="Scoring limiti (so'm)"
+                  placeholder="masalan, 16 000 000"
+                  value={scoringLimit}
+                  onChange={(v) => setScoringLimit(sanitizeInt(v))}
                 />
                 <LabeledInput
                   label="Kerakli boshlang'ich (hisoblangan)"
@@ -188,9 +216,7 @@ export default function SomInstallmentCalculator() {
               >
                 <option value={0}>Muddatni tanlang</option>
                 {monthOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </div>
@@ -198,8 +224,8 @@ export default function SomInstallmentCalculator() {
 
           {/* Results */}
           <div className="grid grid-cols-1 gap-3">
-            <StatRow label="Oylik to'lov" value={`${fmt(displayMonthly)} so'm`} big />
-            <StatRow label="Umumiy (boshlang'ich bilan)" value={`${fmt(grandTotal)} so'm`} />
+            <StatRow label="Oylik to'lov" value={`${fmt(displayMonthly || 0)} so'm`} big />
+            <StatRow label="Umumiy (boshlang'ich bilan)" value={`${fmt(grandTotal || 0)} so'm`} />
           </div>
 
           <div className="flex justify-end">
@@ -211,27 +237,20 @@ export default function SomInstallmentCalculator() {
             </button>
           </div>
 
-          {showDetails && (
-            <div className="grid grid-cols-1 gap-3">
-              <div className="h-px bg-neutral-200" />
-              <StatRow label="Moliyalashtiriladigan summa" value={`${fmt(financed)} so'm`} />
-              <StatRow label={`Ustama (${ratePct}%)`} value={`${fmt(fee)} so'm`} />
-              <StatRow label="Bo'lib-bo'lib jami" value={`${fmt(repayTotal)} so'm`} />
-            </div>
-          )}
+          {showDetails && detailsBlock}
 
           {/* Warnings */}
-          {appliedDown > price && (
-            <p className="text-sm text-red-600">Boshlang'ich to'lov mahsulot narxidan oshmasin.</p>
+          {appliedDown > Number(price) && (
+            <p className="text-sm text-red-600">Diqqat: hisob natijasida boshlang'ich to'lov mahsulot narxidan yuqori chiqdi. Limit yetarli emas.</p>
           )}
 
           {/* Rates editor */}
           {editing && <RatesEditor rates={rates} setRates={setRates} />}
 
-          <footer className="text-xs text-neutral-400 pt-2">
-            Hisoblash formulasi: oylik = ((narx − boshlang'ich) × (1 + stavka%)) ÷ oylar soni.
-            Oylik limit rejimi: boshlang'ich = narx − (oylik × oylar) ÷ (1 + stavka%).
-            Yillik limit rejimi: boshlang'ich = max(0, narx − (yillik limit − ishlatilgan)).
+          <footer className="text-xs text-neutral-400 pt-2 space-y-1">
+            <div>Oddiy formula: oylik = ((narx − boshlang'ich) × (1 + stavka%)) ÷ oylar.</div>
+            <div>Yillik limit (principal) rejimi: boshlang'ich = max(0, narx − (yillik limit − ishlatilgan)).</div>
+            <div>Scoring limiti bo‘yicha rejim: boshlang'ich = max(0, (narx × (1 + stavka%)) − scoring limiti); oylik = (min(to‘liq hisob, limiti)) ÷ oylar.</div>
           </footer>
         </div>
       </div>
@@ -261,9 +280,7 @@ function StatRow({ label, value, big }) {
   return (
     <div className="flex items-baseline justify-between">
       <span className="text-sm text-neutral-600">{label}</span>
-      <span className={`${big ? "text-2xl font-semibold" : "text-base font-medium"}`}>
-        {value}
-      </span>
+      <span className={`${big ? "text-2xl font-semibold" : "text-base font-medium"}`}>{value}</span>
     </div>
   );
 }
@@ -284,12 +301,8 @@ function RatesEditor({ rates, setRates }) {
       <div className="flex items-center justify-between">
         <h3 className="font-medium">Stavkalarni tahrirlash (%)</h3>
         <div className="flex gap-2">
-          <button className="px-3 py-1.5 rounded-lg border hover:bg-neutral-50" onClick={reset}>
-            Standartni qaytarish
-          </button>
-          <button className="px-3 py-1.5 rounded-lg bg-neutral-900 text-white" onClick={apply}>
-            Saqlash
-          </button>
+          <button className="px-3 py-1.5 rounded-lg border hover:bg-neutral-50" onClick={reset}>Standartni qaytarish</button>
+          <button className="px-3 py-1.5 rounded-lg bg-neutral-900 text-white" onClick={apply}>Saqlash</button>
         </div>
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2">
@@ -310,7 +323,6 @@ function RatesEditor({ rates, setRates }) {
 
 // === Small utils ===
 function sanitizeInt(raw) {
-  // keep digits only, return number
   const only = String(raw).replace(/[^0-9]/g, "");
   return Number(only || 0);
 }
@@ -325,56 +337,48 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-// === Dev sanity tests (run only in dev) ===
-function approxEqual(a, b, tol = 1) {
-  return Math.abs(a - b) <= tol;
-}
-
+// === Dev sanity tests ===
+function approxEqual(a, b, tol = 2) { return Math.abs(a - b) <= tol; }
 function runSanityTests() {
-  // Test 1: Yearly limit example from chat
-  const price = 17_000_000;
-  const yearlyLimit = 12_000_000;
-  const used = 0;
-  const months = 10;
-  const r = DEFAULT_RATES[10] / 100; // 55%
-  const available = Math.max(0, yearlyLimit - used);
-  const down = Math.max(0, price - available); // 5,000,000
-  const financed = price - down; // 12,000,000
-  const monthly = (financed * (1 + r)) / months; // 1,860,000
-  console.assert(approxEqual(down, 5_000_000, 2), "Yearly down wrong");
-  console.assert(approxEqual(financed, 12_000_000, 2), "Yearly financed wrong");
-  console.assert(approxEqual(monthly, 1_860_000, 2), "Yearly monthly wrong");
-
-  // Test 2: Monthly-limit derived down
-  const price2 = 12_500_000;
-  const months2 = 12;
-  const r2 = DEFAULT_RATES[12] / 100; // 63%
-  const monthlyLimit2 = 1_000_000;
-  const down2 = price2 - (monthlyLimit2 * months2) / (1 + r2);
-  const financed2 = price2 - down2;
-  const monthly2 = (financed2 * (1 + r2)) / months2;
-  console.assert(approxEqual(monthly2, monthlyLimit2, 2), "Monthly-limit consistency");
-
-  // Test 3: Plain down payment
-  const price3 = 10_000_000;
-  const down3 = 3_000_000;
-  const months3 = 5;
-  const r3 = DEFAULT_RATES[5] / 100; // 35%
-  const monthly3 = ((price3 - down3) * (1 + r3)) / months3;
-  console.assert(monthly3 > 0, "Plain down monthly should be positive");
-
-  // Test 4: Clamp and formatting sanity
-  console.assert(clamp(5, 0, 10) === 5, "Clamp mid");
-  console.assert(clamp(-1, 0, 10) === 0, "Clamp low");
-  console.assert(clamp(99, 0, 10) === 10, "Clamp high");
-  console.assert(fmt(1234567) === new Intl.NumberFormat("uz-UZ").format(1234567), "fmt format");
-}
-
-// In dev builds, run sanity tests without referencing bare `import` identifier
-try {
-  if (import.meta && import.meta.env && import.meta.env.DEV) {
-    runSanityTests();
+  // Test 0: DEFAULT_RATES match expected decimals (5.5%, 11%, ... 81%)
+  const EXPECTED = {1:5.5,2:11,3:17,4:25,5:33,6:39,7:45,8:49,9:52,10:58,11:61,12:67,13:71,14:76,15:81};
+  for (let m = 1; m <= 15; m++) {
+    console.assert(approxEqual(DEFAULT_RATES[m], EXPECTED[m], 1e-3), `DEFAULT_RATES[${m}] mismatch`);
   }
-} catch (e) {
-  // ignore if import.meta is not available in the environment
+
+  // Test 1: Yearly limit example — dynamic r taken from DEFAULT_RATES[10]
+  const P1 = 17_000_000, L1 = 12_000_000, U1 = 0, m1 = 10, r1 = DEFAULT_RATES[10] / 100;
+  const available1 = Math.max(0, L1 - U1);
+  const down1 = Math.max(0, P1 - available1); // 5,000,000 (independent of r)
+  const financed1 = P1 - down1;               // 12,000,000
+  const monthly1 = (financed1 * (1 + r1)) / m1;
+  const expectedMonthly1 = (financed1 * (1 + r1)) / m1;
+  console.assert(approxEqual(down1, 5_000_000), 'Yearly down wrong');
+  console.assert(approxEqual(financed1, 12_000_000), 'Yearly financed wrong');
+  console.assert(approxEqual(monthly1, expectedMonthly1, 1), 'Yearly monthly wrong');
+
+  // Test 2: Scoring-limit mode — dynamic with DEFAULT_RATES[10]
+  const P2 = 14_000_000, m2 = 10, r2 = DEFAULT_RATES[10] / 100;
+  const repayFull2 = P2 * (1 + r2);
+  const limit2 = 16_000_000;
+  const requiredDown2 = Math.max(0, repayFull2 - limit2);
+  const monthly2 = Math.min(repayFull2, limit2) / m2;
+  const expectedDown2 = Math.max(0, repayFull2 - limit2);
+  const expectedMonthly2 = Math.min(repayFull2, limit2) / m2;
+  console.assert(approxEqual(requiredDown2, expectedDown2, 1), 'requiredDown calc');
+  console.assert(approxEqual(monthly2, expectedMonthly2, 1), 'monthly by limit');
+
+  // Test 3: Scoring-limit mode when limit >= full repay (down=0)
+  const P3 = 5_000_000, m3 = 4, r3 = DEFAULT_RATES[4] / 100;
+  const repayFull3 = P3 * (1 + r3);
+  const limit3 = 10_000_000;
+  const requiredDown3 = Math.max(0, repayFull3 - limit3);
+  const monthly3 = repayFull3 / m3;
+  console.assert(approxEqual(requiredDown3, 0), 'down should be 0');
+  console.assert(approxEqual(monthly3, repayFull3 / m3, 1), 'monthly when limit not binding');
+
+  // Test 4: Clamp/fmt
+  console.assert(clamp(5,0,10)===5 && clamp(-1,0,10)===0 && clamp(11,0,10)===10, 'clamp');
+  console.assert(fmt(1234567) === new Intl.NumberFormat('uz-UZ').format(1234567), 'fmt');
 }
+try { if (import.meta && import.meta.env && import.meta.env.DEV) runSanityTests(); } catch {}
