@@ -8,21 +8,21 @@ const fmt = (n) =>
 
 // Default month -> markup % table (B2C)
 const DEFAULT_RATES = {
-  1: 5,
-  2: 10,
+  1: 5.5,
+  2: 11,
   3: 17,
   4: 25,
-  5: 35,
-  6: 38,
-  7: 43,
-  8: 47,
-  9: 50,
-  10: 55,
-  11: 58,
-  12: 63,
-  13: 65,
-  14: 68,
-  15: 70,
+  5: 33,
+  6: 39,
+  7: 45,
+  8: 49,
+  9: 52,
+  10: 58,
+  11: 61,
+  12: 67,
+  13: 71,
+  14: 76,
+  15: 81,
 };
 
 export default function SomInstallmentCalculator() {
